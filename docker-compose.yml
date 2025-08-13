@@ -11,7 +11,10 @@ services:
     environment:
       - USER_UID=1000
       - USER_GID=1000
+      # Keep ROOT_URL as host.docker.internal for external access
       - GITEA__server__ROOT_URL=http://host.docker.internal:3000
+      # FIX: Add LOCAL_ROOT_URL for internal container-to-container communication
+      - GITEA__server__LOCAL_ROOT_URL=http://gitea:3000
     restart: always
     networks:
       - gitea
@@ -36,6 +39,7 @@ services:
       dockerfile: Dockerfile
     container_name: gitea-runner
     environment:
+      # Keep using host.docker.internal as requested
       GITEA_INSTANCE_URL: "http://host.docker.internal:3000"
       GITEA_RUNNER_REGISTRATION_TOKEN: "L1wPrq9d4r7Q3srnULedPArVqNs0w1uFiuaNb27S"
       GITEA_RUNNER_NAME: "runner01"
