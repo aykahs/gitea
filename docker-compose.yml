@@ -1,4 +1,4 @@
-version: "3.8"
+# version: "3.8"
 
 networks:
   gitea:
@@ -11,9 +11,12 @@ services:
     environment:
       - USER_UID=1000
       - USER_GID=1000
+      - GITEA__server__ROOT_URL=http://host.docker.internal:3000
     restart: always
     networks:
       - gitea
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./gitea:/data
       - /etc/timezone:/etc/timezone:ro
@@ -28,16 +31,23 @@ services:
       retries: 5
 
   runner:
-    image: docker.io/gitea/act_runner:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gitea-runner
     environment:
-      GITEA_INSTANCE_URL: "http://gitea:3000"
+      GITEA_INSTANCE_URL: "http://host.docker.internal:3000"
       GITEA_RUNNER_REGISTRATION_TOKEN: "L1wPrq9d4r7Q3srnULedPArVqNs0w1uFiuaNb27S"
       GITEA_RUNNER_NAME: "runner01"
-    networks:
-      - gitea
     depends_on:
       gitea:
         condition: service_healthy
+    networks:
+      - gitea
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./runner:/data
+      - ./scripts:/scripts
       - /var/run/docker.sock:/var/run/docker.sock
+    entrypoint: ["/bin/sh", "/scripts/runner-entrypoint.sh"]
