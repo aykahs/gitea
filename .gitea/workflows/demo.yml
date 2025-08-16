@@ -16,118 +16,178 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # Fetch all history for proper release notes
+          fetch-depth: 0  # Fetch all history
 
       - name: Set release variables
         id: vars
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag_name=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
-            echo "release_name=Release ${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
+          if [ "${{ gitea.event_name }}" = "workflow_dispatch" ]; then
+            TAG_NAME="${{ inputs.tag_name }}"
           else
-            echo "tag_name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-            echo "release_name=Release ${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            TAG_NAME="${GITEA_REF_NAME}"
           fi
-          echo "zip_name=${GITHUB_REPOSITORY##*/}-${GITHUB_REF#refs/tags/}.zip" >> $GITHUB_OUTPUT
+          
+          echo "tag_name=${TAG_NAME}" >> $GITEA_OUTPUT
+          echo "release_name=Release ${TAG_NAME}" >> $GITEA_OUTPUT
+          echo "zip_name=${GITEA_REPOSITORY##*/}-${TAG_NAME}.zip" >> $GITEA_OUTPUT
+          
+          echo "Release tag: ${TAG_NAME}"
+          echo "ZIP filename: ${GITEA_REPOSITORY##*/}-${TAG_NAME}.zip"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zip rsync
 
       - name: Create project ZIP
         run: |
           # Create a clean directory for the release
           mkdir -p release-build
           
-          # Copy project files (exclude .git, .gitea, node_modules, etc.)
-          rsync -av --exclude='.git' \
-                   --exclude='.gitea' \
-                   --exclude='node_modules' \
-                   --exclude='*.log' \
-                   --exclude='.env' \
-                   --exclude='.env.local' \
-                   --exclude='dist' \
-                   --exclude='build' \
-                   --exclude='.DS_Store' \
-                   --exclude='Thumbs.db' \
-                   . release-build/
+          echo "Creating release ZIP..."
+          
+          # Copy project files (exclude development and system files)
+          rsync -av \
+                --exclude='.git' \
+                --exclude='.gitea' \
+                --exclude='node_modules' \
+                --exclude='*.log' \
+                --exclude='.env' \
+                --exclude='.env.local' \
+                --exclude='.env.example' \
+                --exclude='dist' \
+                --exclude='build' \
+                --exclude='.DS_Store' \
+                --exclude='Thumbs.db' \
+                --exclude='*.tmp' \
+                --exclude='.cache' \
+                --exclude='coverage' \
+                . release-build/
           
           # Create ZIP file
           cd release-build
-          zip -r "../${{ steps.vars.outputs.zip_name }}" .
+          zip -r "../${{ steps.vars.outputs.zip_name }}" . -x "*.git*"
           cd ..
           
           # Generate checksums
           sha256sum "${{ steps.vars.outputs.zip_name }}" > "${{ steps.vars.outputs.zip_name }}.sha256"
+          md5sum "${{ steps.vars.outputs.zip_name }}" > "${{ steps.vars.outputs.zip_name }}.md5"
           
-          echo "Created ZIP: ${{ steps.vars.outputs.zip_name }}"
-          echo "ZIP size: $(du -h "${{ steps.vars.outputs.zip_name }}" | cut -f1)"
+          echo "✅ Created ZIP: ${{ steps.vars.outputs.zip_name }}"
+          echo "📦 ZIP size: $(du -h "${{ steps.vars.outputs.zip_name }}" | cut -f1)"
+          
+          # List contents for verification
+          echo "📋 ZIP contents:"
+          unzip -l "${{ steps.vars.outputs.zip_name }}" | head -20
 
       - name: Generate release notes
-        id: release_notes
         run: |
           cat > release_notes.md << 'EOF'
-          ## Changes in ${{ steps.vars.outputs.tag_name }}
+          ## 🚀 Release ${{ steps.vars.outputs.tag_name }}
           
-          ### 📦 Release Package
-          - **File**: `${{ steps.vars.outputs.zip_name }}`
-          - **Size**: `$(du -h "${{ steps.vars.outputs.zip_name }}" | cut -f1)`
-          - **SHA256**: `$(cat "${{ steps.vars.outputs.zip_name }}.sha256" | cut -d' ' -f1)`
+          ### 📦 Download Information
           
-          ### 📋 Installation
-          1. Download the ZIP file
-          2. Extract to your desired location
-          3. Follow the README instructions
+          | File | Size | Checksum Type | Hash |
+          |------|------|---------------|------|
+          | `${{ steps.vars.outputs.zip_name }}` | `$(du -h "${{ steps.vars.outputs.zip_name }}" | cut -f1)` | SHA256 | `$(cat "${{ steps.vars.outputs.zip_name }}.sha256" | cut -d' ' -f1)` |
+          | `${{ steps.vars.outputs.zip_name }}` | `$(du -h "${{ steps.vars.outputs.zip_name }}" | cut -f1)` | MD5 | `$(cat "${{ steps.vars.outputs.zip_name }}.md5" | cut -d' ' -f1)` |
+          
+          ### 📋 Installation Instructions
+          
+          1. **Download**: Click on the ZIP file below
+          2. **Verify**: Check the file integrity using the provided checksums
+          3. **Extract**: Unzip to your desired location
+          4. **Setup**: Follow the README.md instructions
           
           ### 🔍 What's Included
-          - Source code (excluding development files)
-          - Documentation
-          - Configuration examples
-          - All necessary project files
+          
+          - ✅ Source code (production-ready)
+          - ✅ Documentation files
+          - ✅ Configuration templates
+          - ✅ All necessary project files
+          - ❌ Development dependencies excluded
+          - ❌ Build artifacts excluded
+          - ❌ Environment files excluded
+          
+          ### 🔐 Verification Commands
+          
+          ```bash
+          # Verify SHA256
+          echo "$(cat ${{ steps.vars.outputs.zip_name }}.sha256)" | sha256sum -c
+          
+          # Verify MD5
+          echo "$(cat ${{ steps.vars.outputs.zip_name }}.md5)" | md5sum -c
+          ```
           
           ---
-          **Full Changelog**: [${{ steps.vars.outputs.tag_name }}](../../compare/$(git describe --tags --abbrev=0 ${{ steps.vars.outputs.tag_name }}^)..${{ steps.vars.outputs.tag_name }})
+          
+          **Build Time**: `$(date -u +"%Y-%m-%d %H:%M:%S UTC")`
+          **Commit**: `${GITEA_SHA:0:8}`
           EOF
+          
+          echo "Generated release notes:"
+          cat release_notes.md
 
-      - name: Create Release
-        uses: actions/create-release@v1
-        id: create_release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.vars.outputs.tag_name }}
-          release_name: ${{ steps.vars.outputs.release_name }}
-          body_path: release_notes.md
-          draft: false
-          prerelease: false
+      - name: Create Gitea Release
+        run: |
+          # Use Gitea's API to create release
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "tag_name": "${{ steps.vars.outputs.tag_name }}",
+              "name": "${{ steps.vars.outputs.release_name }}",
+              "body": "'"$(cat release_notes.md | sed 's/"/\\"/g' | tr '\n' '\\n')"'",
+              "draft": false,
+              "prerelease": false
+            }' \
+            "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases" > release_response.json
+          
+          # Extract upload URL
+          RELEASE_ID=$(cat release_response.json | grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2)
+          echo "release_id=${RELEASE_ID}" >> $GITEA_OUTPUT
+          echo "Created release with ID: ${RELEASE_ID}"
 
       - name: Upload ZIP Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./${{ steps.vars.outputs.zip_name }}
-          asset_name: ${{ steps.vars.outputs.zip_name }}
-          asset_content_type: application/zip
+        run: |
+          # Upload the ZIP file
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+            -H "Content-Type: application/zip" \
+            -F "attachment=@${{ steps.vars.outputs.zip_name }}" \
+            "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases/${{ steps.create-release.outputs.release_id }}/assets?name=${{ steps.vars.outputs.zip_name }}"
 
-      - name: Upload Checksum Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./${{ steps.vars.outputs.zip_name }}.sha256
-          asset_name: ${{ steps.vars.outputs.zip_name }}.sha256
-          asset_content_type: text/plain
+      - name: Upload Checksum Files
+        run: |
+          # Upload SHA256 checksum
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+            -H "Content-Type: text/plain" \
+            -F "attachment=@${{ steps.vars.outputs.zip_name }}.sha256" \
+            "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases/${{ steps.create-release.outputs.release_id }}/assets?name=${{ steps.vars.outputs.zip_name }}.sha256"
+          
+          # Upload MD5 checksum
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+            -H "Content-Type: text/plain" \
+            -F "attachment=@${{ steps.vars.outputs.zip_name }}.md5" \
+            "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases/${{ steps.create-release.outputs.release_id }}/assets?name=${{ steps.vars.outputs.zip_name }}.md5"
 
       - name: Summary
         run: |
-          echo "## 🎉 Release Created Successfully!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Release**: ${{ steps.vars.outputs.release_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Tag**: ${{ steps.vars.outputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**ZIP File**: ${{ steps.vars.outputs.zip_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Size**: $(du -h "${{ steps.vars.outputs.zip_name }}" | cut -f1)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📥 Download Links" >> $GITHUB_STEP_SUMMARY
-          echo "- [ZIP File](${{ steps.create_release.outputs.html_url }})" >> $GITHUB_STEP_SUMMARY
-          echo "- [Checksum](${{ steps.create_release.outputs.html_url }})" >> $GITHUB_STEP_SUMMARY
+          echo "## 🎉 Release Created Successfully!" 
+          echo ""
+          echo "**Release**: ${{ steps.vars.outputs.release_name }}"
+          echo "**Tag**: ${{ steps.vars.outputs.tag_name }}"
+          echo "**ZIP File**: ${{ steps.vars.outputs.zip_name }}"
+          echo "**Size**: $(du -h "${{ steps.vars.outputs.zip_name }}" | cut -f1)"
+          echo "**SHA256**: $(cat "${{ steps.vars.outputs.zip_name }}.sha256" | cut -d' ' -f1)"
+          echo ""
+          echo "### 📥 Assets Uploaded:"
+          echo "- ✅ ZIP file"
+          echo "- ✅ SHA256 checksum"
+          echo "- ✅ MD5 checksum"
+          echo ""
+          echo "🔗 **View Release**: ${{ gitea.server_url }}/${{ gitea.repository }}/releases/tag/${{ steps.vars.outputs.tag_name }}"
