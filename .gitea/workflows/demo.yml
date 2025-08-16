@@ -1,21 +1,133 @@
-name: Gitea Actions Demo
-run-name: ${{ gitea.actor }} is testing out Gitea Actions 🚀
-on: [push]
+name: Create Release ZIP
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggers on version tags like v1.0.0, v2.1.3, etc.
+  workflow_dispatch:  # Allow manual trigger
+    inputs:
+      tag_name:
+        description: 'Release tag name'
+        required: true
+        default: 'v1.0.0'
 
 jobs:
-  Explore-Gitea-Actions:
+  create-release:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "🎉 The job was automatically triggered by a ${{ gitea.event_name }} event."
-      - run: echo "🐧 This job is now running on a ${{ runner.os }} server hosted by Gitea!"
-      - run: echo "🔎 The name of your branch is ${{ gitea.ref }} and your repository is ${{ gitea.repository }}."
-      - name: Check out repository code
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
-        repository: http://host.docker.internal:3000/prajwol/test.git
-      - run: echo "💡 The ${{ gitea.repository }} repository has been cloned to the runner."
-      - run: echo "🖥️ The workflow is now ready to test your code on the runner."
-      - name: List files in the repository
+          fetch-depth: 0  # Fetch all history for proper release notes
+
+      - name: Set release variables
+        id: vars
         run: |
-          ls ${{ gitea.workspace }}
-      - run: echo "🍏 This job's status is ${{ job.status }}."
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag_name=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
+            echo "release_name=Release ${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag_name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            echo "release_name=Release ${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+          echo "zip_name=${GITHUB_REPOSITORY##*/}-${GITHUB_REF#refs/tags/}.zip" >> $GITHUB_OUTPUT
+
+      - name: Create project ZIP
+        run: |
+          # Create a clean directory for the release
+          mkdir -p release-build
+          
+          # Copy project files (exclude .git, .gitea, node_modules, etc.)
+          rsync -av --exclude='.git' \
+                   --exclude='.gitea' \
+                   --exclude='node_modules' \
+                   --exclude='*.log' \
+                   --exclude='.env' \
+                   --exclude='.env.local' \
+                   --exclude='dist' \
+                   --exclude='build' \
+                   --exclude='.DS_Store' \
+                   --exclude='Thumbs.db' \
+                   . release-build/
+          
+          # Create ZIP file
+          cd release-build
+          zip -r "../${{ steps.vars.outputs.zip_name }}" .
+          cd ..
+          
+          # Generate checksums
+          sha256sum "${{ steps.vars.outputs.zip_name }}" > "${{ steps.vars.outputs.zip_name }}.sha256"
+          
+          echo "Created ZIP: ${{ steps.vars.outputs.zip_name }}"
+          echo "ZIP size: $(du -h "${{ steps.vars.outputs.zip_name }}" | cut -f1)"
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          cat > release_notes.md << 'EOF'
+          ## Changes in ${{ steps.vars.outputs.tag_name }}
+          
+          ### 📦 Release Package
+          - **File**: `${{ steps.vars.outputs.zip_name }}`
+          - **Size**: `$(du -h "${{ steps.vars.outputs.zip_name }}" | cut -f1)`
+          - **SHA256**: `$(cat "${{ steps.vars.outputs.zip_name }}.sha256" | cut -d' ' -f1)`
+          
+          ### 📋 Installation
+          1. Download the ZIP file
+          2. Extract to your desired location
+          3. Follow the README instructions
+          
+          ### 🔍 What's Included
+          - Source code (excluding development files)
+          - Documentation
+          - Configuration examples
+          - All necessary project files
+          
+          ---
+          **Full Changelog**: [${{ steps.vars.outputs.tag_name }}](../../compare/$(git describe --tags --abbrev=0 ${{ steps.vars.outputs.tag_name }}^)..${{ steps.vars.outputs.tag_name }})
+          EOF
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        id: create_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.vars.outputs.tag_name }}
+          release_name: ${{ steps.vars.outputs.release_name }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+
+      - name: Upload ZIP Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./${{ steps.vars.outputs.zip_name }}
+          asset_name: ${{ steps.vars.outputs.zip_name }}
+          asset_content_type: application/zip
+
+      - name: Upload Checksum Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./${{ steps.vars.outputs.zip_name }}.sha256
+          asset_name: ${{ steps.vars.outputs.zip_name }}.sha256
+          asset_content_type: text/plain
+
+      - name: Summary
+        run: |
+          echo "## 🎉 Release Created Successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Release**: ${{ steps.vars.outputs.release_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag**: ${{ steps.vars.outputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**ZIP File**: ${{ steps.vars.outputs.zip_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Size**: $(du -h "${{ steps.vars.outputs.zip_name }}" | cut -f1)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📥 Download Links" >> $GITHUB_STEP_SUMMARY
+          echo "- [ZIP File](${{ steps.create_release.outputs.html_url }})" >> $GITHUB_STEP_SUMMARY
+          echo "- [Checksum](${{ steps.create_release.outputs.html_url }})" >> $GITHUB_STEP_SUMMARY

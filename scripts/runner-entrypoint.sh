@@ -1,15 +1,10 @@
-
-
-
-
-#!/bin/sh
+#!/bin/bash
 
 # Create runner configuration
 mkdir -p /data
 
 #
 NETWORK_NAME="gitea_gitea"  # fallback to default compose network name
-
 
 # Create runner config with network settings
 cat > /data/config.yaml <<EOF
@@ -48,7 +43,7 @@ if [ ! -f ".runner" ]; then
     echo "Registering runner..."
     act_runner register \
         --instance "http://gitea:3000" \
-        --token "L1wPrq9d4r7Q3srnULedPArVqNs0w1uFiuaNb27S" \
+        --token "w9fE3z4iHSCAi7swRglL8Oy1YvlIgILxKhDsX2C0" \
         --name "runner01" \
         --labels "ubuntu-latest:docker://docker.gitea.com/runner-images:ubuntu-latest" \
         --config /data/config.yaml \
