@@ -43,10 +43,13 @@ jobs:
 
       - name: Create project ZIP
         run: |
+          # Get the variables from the previous step
+          ZIP_NAME="${{ steps.vars.outputs.zip_name }}"
+          
           # Create a clean directory for the release
           mkdir -p release-build
           
-          echo "Creating release ZIP..."
+          echo "Creating release ZIP: ${ZIP_NAME}"
           
           # Copy project files (exclude development and system files)
           rsync -av \
@@ -59,6 +62,7 @@ jobs:
                 --exclude='.env.example' \
                 --exclude='dist' \
                 --exclude='build' \
+                --exclude='release-build' \
                 --exclude='.DS_Store' \
                 --exclude='Thumbs.db' \
                 --exclude='*.tmp' \
@@ -68,31 +72,46 @@ jobs:
           
           # Create ZIP file
           cd release-build
-          zip -r "../${{ steps.vars.outputs.zip_name }}" . -x "*.git*"
+          zip -r "../${ZIP_NAME}" . -x "*.git*"
           cd ..
           
-          # Generate checksums
-          sha256sum "${{ steps.vars.outputs.zip_name }}" > "${{ steps.vars.outputs.zip_name }}.sha256"
-          md5sum "${{ steps.vars.outputs.zip_name }}" > "${{ steps.vars.outputs.zip_name }}.md5"
+          # Verify the ZIP was created
+          if [ ! -f "${ZIP_NAME}" ]; then
+            echo "❌ Error: ZIP file was not created"
+            exit 1
+          fi
           
-          echo "✅ Created ZIP: ${{ steps.vars.outputs.zip_name }}"
-          echo "📦 ZIP size: $(du -h "${{ steps.vars.outputs.zip_name }}" | cut -f1)"
+          # Generate checksums
+          sha256sum "${ZIP_NAME}" > "${ZIP_NAME}.sha256"
+          md5sum "${ZIP_NAME}" > "${ZIP_NAME}.md5"
+          
+          echo "✅ Created ZIP: ${ZIP_NAME}"
+          echo "📦 ZIP size: $(du -h "${ZIP_NAME}" | cut -f1)"
+          
+          # Show checksums
+          echo "🔐 SHA256: $(cat "${ZIP_NAME}.sha256" | cut -d' ' -f1)"
+          echo "🔐 MD5: $(cat "${ZIP_NAME}.md5" | cut -d' ' -f1)"
           
           # List contents for verification
           echo "📋 ZIP contents:"
-          unzip -l "${{ steps.vars.outputs.zip_name }}" | head -20
+          unzip -l "${ZIP_NAME}" | head -20
 
       - name: Generate release notes
         run: |
-          cat > release_notes.md << 'EOF'
-          ## 🚀 Release ${{ steps.vars.outputs.tag_name }}
+          # Get variables
+          ZIP_NAME="${{ steps.vars.outputs.zip_name }}"
+          TAG_NAME="${{ steps.vars.outputs.tag_name }}"
+          
+          # Generate release notes with proper variable substitution
+          cat > release_notes.md << EOF
+          ## 🚀 Release ${TAG_NAME}
           
           ### 📦 Download Information
           
           | File | Size | Checksum Type | Hash |
           |------|------|---------------|------|
-          | `${{ steps.vars.outputs.zip_name }}` | `$(du -h "${{ steps.vars.outputs.zip_name }}" | cut -f1)` | SHA256 | `$(cat "${{ steps.vars.outputs.zip_name }}.sha256" | cut -d' ' -f1)` |
-          | `${{ steps.vars.outputs.zip_name }}` | `$(du -h "${{ steps.vars.outputs.zip_name }}" | cut -f1)` | MD5 | `$(cat "${{ steps.vars.outputs.zip_name }}.md5" | cut -d' ' -f1)` |
+          | \`${ZIP_NAME}\` | \`$(du -h "${ZIP_NAME}" | cut -f1)\` | SHA256 | \`$(cat "${ZIP_NAME}.sha256" | cut -d' ' -f1)\` |
+          | \`${ZIP_NAME}\` | \`$(du -h "${ZIP_NAME}" | cut -f1)\` | MD5 | \`$(cat "${ZIP_NAME}.md5" | cut -d' ' -f1)\` |
           
           ### 📋 Installation Instructions
           
@@ -113,18 +132,18 @@ jobs:
           
           ### 🔐 Verification Commands
           
-          ```bash
+          \`\`\`bash
           # Verify SHA256
-          echo "$(cat ${{ steps.vars.outputs.zip_name }}.sha256)" | sha256sum -c
+          echo "$(cat "${ZIP_NAME}.sha256")" | sha256sum -c
           
           # Verify MD5
-          echo "$(cat ${{ steps.vars.outputs.zip_name }}.md5)" | md5sum -c
-          ```
+          echo "$(cat "${ZIP_NAME}.md5")" | md5sum -c
+          \`\`\`
           
           ---
           
-          **Build Time**: `$(date -u +"%Y-%m-%d %H:%M:%S UTC")`
-          **Commit**: `${GITEA_SHA:0:8}`
+          **Build Time**: \`$(date -u +"%Y-%m-%d %H:%M:%S UTC")\`
+          **Commit**: \`\${GITEA_SHA:0:8}\`
           EOF
           
           echo "Generated release notes:"
