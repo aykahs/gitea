@@ -187,15 +187,26 @@ jobs:
 
       - name: Upload ZIP Asset
         run: |
+          echo "Uploading ZIP file: $ZIP_NAME"
+          
           # Upload the ZIP file
           curl -X POST \
             -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
             -H "Content-Type: application/zip" \
             -F "attachment=@$ZIP_NAME" \
             "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases/$RELEASE_ID/assets?name=$ZIP_NAME"
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ Successfully uploaded ZIP file"
+          else
+            echo "❌ Failed to upload ZIP file"
+            exit 1
+          fi
 
       - name: Upload Checksum Files
         run: |
+          echo "Uploading checksum files..."
+          
           # Upload SHA256 checksum
           curl -X POST \
             -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
@@ -203,12 +214,24 @@ jobs:
             -F "attachment=@$ZIP_NAME.sha256" \
             "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases/$RELEASE_ID/assets?name=$ZIP_NAME.sha256"
           
+          if [ $? -eq 0 ]; then
+            echo "✅ Successfully uploaded SHA256 checksum"
+          else
+            echo "⚠️ Failed to upload SHA256 checksum"
+          fi
+          
           # Upload MD5 checksum
           curl -X POST \
             -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
             -H "Content-Type: text/plain" \
             -F "attachment=@$ZIP_NAME.md5" \
             "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases/$RELEASE_ID/assets?name=$ZIP_NAME.md5"
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ Successfully uploaded MD5 checksum"
+          else
+            echo "⚠️ Failed to upload MD5 checksum"
+          fi
 
       - name: Summary
         run: |
