@@ -233,7 +233,56 @@ jobs:
             echo "⚠️ Failed to upload MD5 checksum"
           fi
 
-      - name: Summary
+      - name: Update Release with Detailed Notes
+        run: |
+          echo "Updating release with detailed information..."
+          
+          # Create detailed release notes after we have all the file info
+          cat > detailed_release_notes.md << EOF
+          ## 🚀 Release $TAG_NAME
+          
+          ### 📦 Download Files
+          
+          - **ZIP Package**: \`$ZIP_NAME\` ($(du -h "$ZIP_NAME" | cut -f1))
+          - **SHA256**: \`$(cat "$ZIP_NAME.sha256" | cut -d' ' -f1)\`
+          - **MD5**: \`$(cat "$ZIP_NAME.md5" | cut -d' ' -f1)\`
+          
+          ### 📋 Installation
+          
+          1. Download the ZIP file from the assets below
+          2. Verify integrity using the checksum files
+          3. Extract and follow README instructions
+          
+          ### 🔐 Verification
+          
+          \`\`\`bash
+          # Verify SHA256
+          sha256sum -c $ZIP_NAME.sha256
+          
+          # Verify MD5  
+          md5sum -c $ZIP_NAME.md5
+          \`\`\`
+          
+          **Built**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          EOF
+          
+          # Convert to simple text for JSON (avoid complex escaping)
+          RELEASE_BODY=$(cat detailed_release_notes.md | tr '\n' ' ' | sed 's/"/\\"/g')
+          
+          # Update the release with detailed notes
+          cat > update_payload.json << EOF
+          {
+            "body": "$RELEASE_BODY"
+          }
+          EOF
+          
+          curl -X PATCH \
+            -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d @update_payload.json \
+            "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases/$RELEASE_ID"
+          
+      - name: Final Summary
         run: |
           echo "## 🎉 Release Created Successfully!" 
           echo ""
@@ -245,7 +294,7 @@ jobs:
           echo ""
           echo "### 📥 Assets Uploaded:"
           echo "- ✅ ZIP file"
-          echo "- ✅ SHA256 checksum"
+          echo "- ✅ SHA256 checksum"  
           echo "- ✅ MD5 checksum"
           echo ""
           echo "🔗 **View Release**: ${{ gitea.server_url }}/${{ gitea.repository }}/releases/tag/$TAG_NAME"
