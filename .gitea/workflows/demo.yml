@@ -167,23 +167,49 @@ jobs:
 
       - name: Create Gitea Release
         run: |
-          # Use Gitea's API to create release
+          echo "Creating release: $RELEASE_NAME"
+          
+          # Create simple, safe release body
+          RELEASE_BODY="Release $TAG_NAME - Download the ZIP package and checksums from the assets below."
+          
+          # Write JSON to file (much safer than inline)
+          cat > release_payload.json << EOF
+          {
+            "tag_name": "$TAG_NAME",
+            "name": "$RELEASE_NAME",
+            "body": "$RELEASE_BODY",
+            "draft": false,
+            "prerelease": false
+          }
+          EOF
+          echo "Release payload:"
+          cat release_payload.json
+        # Make the API call
           curl -X POST \
             -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d '{
-              "tag_name": "'$TAG_NAME'",
-              "name": "'$RELEASE_NAME'",
-              "body": "'"$(cat release_notes.md | sed 's/"/\\"/g' | tr '\n' '\\n')"'",
-              "draft": false,
-              "prerelease": false
-            }' \
-            "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases" > release_response.json
+            -d @release_payload.json \
+            "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases" \
+            > release_response.json
           
-          # Extract upload URL
-          RELEASE_ID=$(cat release_response.json | grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2)
+          # Check for errors
+          if [ $? -ne 0 ]; then
+            echo "❌ Failed to create release"
+            cat release_response.json
+            exit 1
+          fi
+          
+          # Extract release ID
+          RELEASE_ID=$(grep -o '"id":[0-9]*' release_response.json | head -1 | cut -d':' -f2)
+          
+          if [ -z "$RELEASE_ID" ]; then
+            echo "❌ Could not extract release ID from response:"
+            cat release_response.json
+            exit 1
+          fi
+          
           echo "RELEASE_ID=${RELEASE_ID}" >> $GITHUB_ENV
-          echo "Created release with ID: ${RELEASE_ID}"
+          echo "✅ Created release with ID: ${RELEASE_ID}"
 
       - name: Upload ZIP Asset
         run: |
