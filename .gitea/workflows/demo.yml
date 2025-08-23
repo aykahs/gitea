@@ -183,7 +183,6 @@ jobs:
             -H "Content-Type: text/plain" \
             -F "attachment=@$ZIP_NAME.md5" \
             "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases/$RELEASE_ID/assets?name=$ZIP_NAME.md5"
-
           if [ $? -eq 0 ]; then
             echo "✅ Successfully uploaded MD5 checksum"
           else
