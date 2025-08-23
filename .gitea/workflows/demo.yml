@@ -1,5 +1,5 @@
 name: Create Release ZIP
-'on':
+on:
   push:
     tags:
       - v*
@@ -9,186 +9,72 @@ name: Create Release ZIP
         description: Release tag name
         required: true
         default: v1.0.0
+
 jobs:
   create-release:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v3
+        with: { fetch-depth: 0 }
+
       - name: Set release variables
         run: |
-          # Check if this is a manual trigger by looking for inputs
-          if [ -n "${{ inputs.tag_name }}" ]; then
-            TAG_NAME="${{ inputs.tag_name }}"
-            echo "Manual trigger with tag: ${TAG_NAME}"
-          else
-            # For tag pushes, extract from ref
-            if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
-              TAG_NAME="${GITHUB_REF_NAME}"
-            elif [ -n "${GITHUB_REF}" ] && [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-              TAG_NAME="${GITHUB_REF#refs/tags/}"
-            else
-              # Fallback - try to get from git
-              TAG_NAME=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "v1.0.0")
-            fi
-            echo "Tag push trigger with tag: ${TAG_NAME}"
-          fi
-
-          # Extract repository name from full path or use fallback
-          if [ -n "$GITHUB_REPOSITORY" ]; then
-            REPO_NAME=$(basename "$GITHUB_REPOSITORY")
-          elif [ -n "$GITEA_REPOSITORY" ]; then
-            REPO_NAME=$(basename "$GITEA_REPOSITORY")
-          else
-            REPO_NAME=$(basename "$(pwd)")
-          fi
-
+          if [ -n "${{ inputs.tag_name }}" ]; then TAG_NAME="${{ inputs.tag_name }}";
+          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then TAG_NAME="${GITHUB_REF_NAME}";
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then TAG_NAME="${GITHUB_REF#refs/tags/}";
+          else TAG_NAME=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "v1.0.0"); fi
+          REPO_NAME=$(basename "${GITHUB_REPOSITORY:-${GITEA_REPOSITORY:-$(pwd)}}")
           ZIP_NAME="${REPO_NAME}-${TAG_NAME}.zip"
+          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
+          echo "RELEASE_NAME=Release $TAG_NAME" >> $GITHUB_ENV
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
-          # Export as environment variables for subsequent steps
-          echo "TAG_NAME=${TAG_NAME}" >> $GITHUB_ENV
-          echo "RELEASE_NAME=Release ${TAG_NAME}" >> $GITHUB_ENV
-          echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
+      - run: sudo apt-get update && sudo apt-get install -y zip rsync
 
-          echo "Release tag: ${TAG_NAME}"
-          echo "ZIP filename: ${ZIP_NAME}"
-          echo "Repository: ${REPO_NAME}"
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y zip rsync
       - name: Create project ZIP
-        run: "echo \"Creating release ZIP: $ZIP_NAME\"\n\n# Create a clean directory for the release\nmkdir -p release-build\n\n# Copy project files (exclude development and system files)\nrsync -av \\\n      --exclude='.git' \\\n      --exclude='.gitea' \\\n      --exclude='node_modules' \\\n      --exclude='*.log' \\\n      --exclude='.env' \\\n      --exclude='.env.local' \\\n      --exclude='.env.example' \\\n      --exclude='dist' \\\n      --exclude='build' \\\n      --exclude='release-build' \\\n      --exclude='.DS_Store' \\\n      --exclude='Thumbs.db' \\\n      --exclude='*.tmp' \\\n      --exclude='.cache' \\\n      --exclude='coverage' \\\n      . release-build/\n\n# Create ZIP file\ncd release-build\nzip -r \"../$ZIP_NAME\" . -x \"*.git*\"\ncd ..\n\n# Verify the ZIP was created\nif [ ! -f \"$ZIP_NAME\" ]; then\n  echo \"❌ Error: ZIP file was not created\"\n  exit 1\nfi\n\n# Generate checksums\nsha256sum \"$ZIP_NAME\" > \"$ZIP_NAME.sha256\"\nmd5sum \"$ZIP_NAME\" > \"$ZIP_NAME.md5\"\n\necho \"✅ Created ZIP: $ZIP_NAME\"\necho \"\U0001F4E6 ZIP size: $(du -h \"$ZIP_NAME\" | cut -f1)\"\n\n# Show checksums\necho \"\U0001F510 SHA256: $(cat \"$ZIP_NAME.sha256\" | cut -d' ' -f1)\"\necho \"\U0001F510 MD5: $(cat \"$ZIP_NAME.md5\" | cut -d' ' -f1)\"\n\n# List contents for verification\necho \"\U0001F4CB ZIP contents:\"\nunzip -l \"$ZIP_NAME\" | head -20\n"
-      - name: Generate release notes
-        run: "# Generate release notes with environment variables\ncat > release_notes.md << EOF\n## \U0001F680 Release $TAG_NAME\n\n### \U0001F4E6 Download Information\n\n| File | Size | Checksum Type | Hash |\n|------|------|---------------|------|\n| \\`$ZIP_NAME\\` | \\`$(du -h \"$ZIP_NAME\" | cut -f1)\\` | SHA256 | \\`$(cat \"$ZIP_NAME.sha256\" | cut -d' ' -f1)\\` |\n| \\`$ZIP_NAME\\` | \\`$(du -h \"$ZIP_NAME\" | cut -f1)\\` | MD5 | \\`$(cat \"$ZIP_NAME.md5\" | cut -d' ' -f1)\\` |\n\n### \U0001F4CB Installation Instructions\n\n1. **Download**: Click on the ZIP file below\n2. **Verify**: Check the file integrity using the provided checksums\n3. **Extract**: Unzip to your desired location\n4. **Setup**: Follow the README.md instructions\n\n### \U0001F50D What's Included\n\n- ✅ Source code (production-ready)\n- ✅ Documentation files\n- ✅ Configuration templates\n- ✅ All necessary project files\n- ❌ Development dependencies excluded\n- ❌ Build artifacts excluded\n- ❌ Environment files excluded\n\n### \U0001F510 Verification Commands\n\n\\`\\`\\`bash\n# Verify SHA256\necho \"$(cat \"$ZIP_NAME.sha256\")\" | sha256sum -c\n\n# Verify MD5\necho \"$(cat \"$ZIP_NAME.md5\")\" | md5sum -c\n\\`\\`\\`\n\n---\n\n**Build Time**: \\`$(date -u +\"%Y-%m-%d %H:%M:%S UTC\")\\`\n**Commit**: \\`\\${GITEA_SHA:0:8}\\`\nEOF\n\necho \"Generated release notes:\"\ncat release_notes.md\n"
+        run: |
+          mkdir -p release-build
+          rsync -av --exclude='.git' --exclude='node_modules' --exclude='*.log' \
+            --exclude='.env*' --exclude='dist' --exclude='build' --exclude='release-build' \
+            --exclude='.DS_Store' --exclude='Thumbs.db' --exclude='*.tmp' \
+            --exclude='.cache' --exclude='coverage' . release-build/
+          cd release-build && zip -r "../$ZIP_NAME" . -x "*.git*" && cd ..
+          sha256sum "$ZIP_NAME" > "$ZIP_NAME.sha256"
+          md5sum "$ZIP_NAME" > "$ZIP_NAME.md5"
+
       - name: Create Gitea Release
-        run: >
-          echo "Creating release: $RELEASE_NAME"
-
-
-          # Create simple, safe release body
-
-          RELEASE_BODY="Release $TAG_NAME - Download the ZIP package and
-          checksums from the assets below."
-
-
-          # Write JSON to file (much safer than inline)
-
-          cat > release_payload.json << EOF
-
-          {
-
-          "tag_name": "$TAG_NAME",
-
-          "name": "$RELEASE_NAME",
-
-          "body": "$RELEASE_BODY",
-
-          "draft": false,
-
-          "prerelease": false
-
-          }
-
+        run: |
+          cat > release_payload.json <<EOF
+          { "tag_name": "$TAG_NAME", "name": "$RELEASE_NAME",
+            "body": "Release $TAG_NAME - download assets below.", 
+            "draft": false, "prerelease": false }
           EOF
+          curl -s -X POST -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+            -H "Content-Type: application/json" -d @release_payload.json \
+            "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases" > release_response.json
+          RELEASE_ID=$(grep -o '"id":[0-9]*' release_response.json | head -1 | cut -d':' -f2)
+          echo "RELEASE_ID=$RELEASE_ID" >> $GITHUB_ENV
 
-          echo "Release payload:"
-
-          cat release_payload.json
-
-          # Make the API call
-
-          curl -X POST \-H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
-
-          -H "Content-Type: application/json" \
-
-          -d @release_payload.json \
-
-          "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases" \
-
-          > release_response.json
-            
-          # Check for errors
-
-          if [ $? -ne 0 ]; then
-
-          echo "❌ Failed to create release"
-
-          cat release_response.json
-
-          exit 1
-
-          fi
-
-
-          # Extract release ID
-
-          RELEASE_ID=$(grep -o '"id":[0-9]*' release_response.json | head -1 |
-          cut -d':' -f2)
-
-
-          if [ -z "$RELEASE_ID" ]; then
-
-          echo "❌ Could not extract release ID from response:"
-
-          cat release_response.json
-
-          exit 1
-
-          fi
-
-
-          echo "RELEASE_ID=${RELEASE_ID}" >> $GITHUB_ENV
-
-          echo "✅ Created release with ID: ${RELEASE_ID}"
-      - name: Upload ZIP Asset
+      - name: Upload assets
         run: |
-          echo "Uploading ZIP file: $ZIP_NAME"
+          for f in "$ZIP_NAME" "$ZIP_NAME.sha256" "$ZIP_NAME.md5"; do
+            curl -s -X POST -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+              -F "attachment=@$f" \
+              "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases/$RELEASE_ID/assets?name=$(basename $f)"
+          done
 
-          # Upload the ZIP file
-          curl -X POST \
-            -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
-            -H "Content-Type: application/zip" \
-            -F "attachment=@$ZIP_NAME" \
-            "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases/$RELEASE_ID/assets?name=$ZIP_NAME"
-
-          if [ $? -eq 0 ]; then
-            echo "✅ Successfully uploaded ZIP file"
-          else
-            echo "❌ Failed to upload ZIP file"
-            exit 1
-          fi
-      - name: Upload Checksum Files
+      - name: Update release notes
         run: |
-          echo "Uploading checksum files..."
+          cat > update_payload.json <<EOF
+          { "body": "Release $TAG_NAME\nZIP: $ZIP_NAME ($(du -h "$ZIP_NAME" | cut -f1))\nSHA256: $(cut -d' ' -f1 $ZIP_NAME.sha256)\nMD5: $(cut -d' ' -f1 $ZIP_NAME.md5)" }
+          EOF
+          curl -s -X PATCH -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+            -H "Content-Type: application/json" -d @update_payload.json \
+            "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases/$RELEASE_ID"
 
-          # Upload SHA256 checksum
-          curl -X POST \
-            -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
-            -H "Content-Type: text/plain" \
-            -F "attachment=@$ZIP_NAME.sha256" \
-            "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases/$RELEASE_ID/assets?name=$ZIP_NAME.sha256"
-
-          if [ $? -eq 0 ]; then
-            echo "✅ Successfully uploaded SHA256 checksum"
-          else
-            echo "⚠️ Failed to upload SHA256 checksum"
-          fi
-
-          # Upload MD5 checksum
-          curl -X POST \
-            -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
-            -H "Content-Type: text/plain" \
-            -F "attachment=@$ZIP_NAME.md5" \
-            "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases/$RELEASE_ID/assets?name=$ZIP_NAME.md5"
-          if [ $? -eq 0 ]; then
-            echo "✅ Successfully uploaded MD5 checksum"
-          else
-            echo "⚠️ Failed to upload MD5 checksum"
-          fi
-      - name: Update Release with Detailed Notes
-        run: "echo \"Updating release with detailed information...\"\n\n# Create detailed release notes after we have all the file info\ncat > detailed_release_notes.md << EOF\n## \U0001F680 Release $TAG_NAME\n\n### \U0001F4E6 Download Files\n\n- **ZIP Package**: \\`$ZIP_NAME\\` ($(du -h \"$ZIP_NAME\" | cut -f1))\n- **SHA256**: \\`$(cat \"$ZIP_NAME.sha256\" | cut -d' ' -f1)\\`\n- **MD5**: \\`$(cat \"$ZIP_NAME.md5\" | cut -d' ' -f1)\\`\n\n### \U0001F4CB Installation\n\n1. Download the ZIP file from the assets below\n2. Verify integrity using the checksum files\n3. Extract and follow README instructions\n\n### \U0001F510 Verification\n\n\\`\\`\\`bash\n# Verify SHA256\nsha256sum -c $ZIP_NAME.sha256\n\n# Verify MD5  \nmd5sum -c $ZIP_NAME.md5\n\\`\\`\\`\n\n**Built**: $(date -u +\"%Y-%m-%d %H:%M:%S UTC\")\nEOF\n\n# Convert to simple text for JSON (avoid complex escaping)\nRELEASE_BODY=$(cat detailed_release_notes.md | tr '\\n' ' ' | sed 's/\"/\\\\\"/g')\n\n# Update the release with detailed notes\ncat > update_payload.json << EOF\n{\n  \"body\": \"$RELEASE_BODY\"\n}\nEOF\n\ncurl -X PATCH \\\n  -H \"Authorization: token ${{ secrets.GITEA_TOKEN }}\" \\\n  -H \"Content-Type: application/json\" \\\n  -d @update_payload.json \\\n  \"${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases/$RELEASE_ID\"\n"
-      - name: Final Summary
-        run: "echo \"## \U0001F389 Release Created Successfully!\" \necho \"\"\necho \"**Release**: $RELEASE_NAME\"\necho \"**Tag**: $TAG_NAME\"\necho \"**ZIP File**: $ZIP_NAME\"\necho \"**Size**: $(du -h \"$ZIP_NAME\" | cut -f1)\"\necho \"**SHA256**: $(cat \"$ZIP_NAME.sha256\" | cut -d' ' -f1)\"\necho \"\"\necho \"### \U0001F4E5 Assets Uploaded:\"\necho \"- ✅ ZIP file\"\necho \"- ✅ SHA256 checksum\"  \necho \"- ✅ MD5 checksum\"\necho \"\"\necho \"\U0001F517 **View Release**: ${{ gitea.server_url }}/${{ gitea.repository }}/releases/tag/$TAG_NAME\"\n"
+      - name: Summary
+        run: |
+          echo "✅ Release $TAG_NAME created"
+          echo "ZIP: $ZIP_NAME ($(du -h "$ZIP_NAME" | cut -f1))"
+          echo "SHA256: $(cut -d' ' -f1 $ZIP_NAME.sha256)"
+          echo "👉 ${{ gitea.server_url }}/${{ gitea.repository }}/releases/tag/$TAG_NAME"
