@@ -41,7 +41,7 @@ services:
     container_name: gitea-runner
     environment:
       # Keep using host.docker.internal as requested
-      GITEA_INSTANCE_URL: "http://host.docker.internal:3000"
+      GITEA_INSTANCE_URL: "http://gitea:3000"
       GITEA_RUNNER_REGISTRATION_TOKEN: "w9fE3z4iHSCAi7swRglL8Oy1YvlIgILxKhDsX2C0"
       GITEA_RUNNER_NAME: "runner01"
     depends_on:
