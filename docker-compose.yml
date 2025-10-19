@@ -33,26 +33,26 @@ services:
       timeout: 5s
       retries: 5
 
-  runner:
-    image: gitea/act_runner:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: gitea-runner
-    environment:
-      # Keep using host.docker.internal as requested
-      GITEA_INSTANCE_URL: "http://gitea:3000"
-      GITEA_RUNNER_REGISTRATION_TOKEN: "w9fE3z4iHSCAi7swRglL8Oy1YvlIgILxKhDsX2C0"
-      GITEA_RUNNER_NAME: "runner01"
-    depends_on:
-      gitea:
-        condition: service_healthy
-    networks:
-      - gitea
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - ./runner:/data
-      - ./scripts:/scripts
-      - /var/run/docker.sock:/var/run/docker.sock
+  # runner:
+  #   image: gitea/act_runner:latest
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: gitea-runner
+  #   environment:
+  #     # Keep using host.docker.internal as requested
+  #     GITEA_INSTANCE_URL: "http://gitea:3000"
+  #     GITEA_RUNNER_REGISTRATION_TOKEN: "w9fE3z4iHSCAi7swRglL8Oy1YvlIgILxKhDsX2C0"
+  #     GITEA_RUNNER_NAME: "runner01"
+  #   depends_on:
+  #     gitea:
+  #       condition: service_healthy
+  #   networks:
+  #     - gitea
+  #   extra_hosts:
+  #     - "host.docker.internal:host-gateway"
+  #   volumes:
+  #     - ./runner:/data
+  #     - ./scripts:/scripts
+  #     - /var/run/docker.sock:/var/run/docker.sock
     # entrypoint: ["/bin/sh", "/scripts/runner-entrypoint.sh"]
